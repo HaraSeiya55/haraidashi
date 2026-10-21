@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>混毛払出指図</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --panel:#ffffff; --line:#cfd6dd; --ink:#1f2933;
+    --sub:#66727f; --accent:#1565c0; --accent-weak:#e3f0ff;
+    --ok:#2e7d32; --ok-weak:#e6f4ea; --warn:#b26a00; --empty:#eef1f4;
+    --chip:#eef2f6; --hdr:#eaf0f6;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;
+    font-size:15px;line-height:1.5;-webkit-text-size-adjust:100%;}
+  header{position:sticky;top:0;z-index:20;background:var(--panel);
+    border-bottom:1px solid var(--line);padding:10px 14px;}
+  .title-row{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
+  h1{font-size:18px;margin:0;}
+  .meta{color:var(--sub);font-size:12px;}
+  main{padding:12px;max-width:1000px;margin:0 auto;}
+
+  /* 検索 */
+  .controls{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:12px;margin-bottom:12px;}
+  .search-box{display:flex;gap:8px;}
+  .search-box input{flex:1;padding:12px 12px;border:1px solid var(--line);
+    border-radius:10px;font-size:16px;}
+  .search-box button{padding:0 14px;border:1px solid var(--line);background:var(--chip);
+    border-radius:10px;cursor:pointer;font-size:14px;}
+  .hint{color:var(--sub);font-size:12px;margin-top:8px;}
+  .count{color:var(--sub);font-size:13px;margin:4px 2px 10px;}
+
+  /* 糸順号の一覧（検索結果・カード） */
+  .jlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;}
+  .jcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:11px 12px;cursor:pointer;}
+  .jcard:active{background:var(--accent-weak);}
+  .jcard .jno{font-weight:800;color:var(--accent);font-size:17px;letter-spacing:.5px;}
+  .jcard .jsub{font-size:12px;color:var(--sub);margin-top:3px;}
+  .jcard .jqc{font-size:14px;margin-top:4px;font-weight:600;}
+  .jcard.norecipe{opacity:.55;}
+  .list-empty{color:var(--sub);text-align:center;padding:24px;}
+
+  /* 払出票ビュー */
+  #view-ticket{display:none;}
+  .back-bar{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .back-bar button{padding:9px 14px;border:1px solid var(--line);background:var(--panel);
+    border-radius:10px;cursor:pointer;font-size:14px;font-weight:600;}
+  .back-bar .pager{margin-left:auto;display:flex;gap:6px;align-items:center;color:var(--sub);font-size:13px;}
+  .back-bar .pager button{padding:7px 12px;}
+
+  /* === 払出票：PDF原本どおりの書式（白地・黒罫線・格子） === */
+  .ticket{background:#fff;color:#000;border-radius:0;overflow:hidden;}
+  .t-sheet{max-width:860px;margin:0 auto;}
+
+  /* 上段：タイトル中央＋右上に台号/氏名の小表 */
+  .t-top{position:relative;padding:6px 0 10px;}
+  .t-title{text-align:center;font-size:30px;font-weight:800;letter-spacing:6px;line-height:1.1;}
+  .t-date{text-align:center;font-size:13px;color:#000;margin-top:4px;}
+  .t-daihyo{position:absolute;top:4px;right:0;border-collapse:collapse;}
+  .t-daihyo td{border:1px solid #000;font-size:13px;text-align:center;}
+  .t-daihyo td.lab{font-weight:700;padding:3px 18px;}
+  .t-daihyo td.blank{height:34px;}
+
+  /* ヘッダ表（糸順号／糸品質・糸色番・トップ量） */
+  table.t-head2{border-collapse:collapse;width:100%;table-layout:fixed;}
+  table.t-head2 td{border:1px solid #000;padding:7px 8px;font-size:16px;height:34px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  table.t-head2 td.k{font-weight:700;text-align:center;background:#fff;}
+  table.t-head2 td.v{font-weight:800;text-align:center;}
+
+  /* 明細表（PDFと同じ8列の格子） */
+  .detail-table-wrap{overflow-x:auto;}
+  table.det{border-collapse:collapse;width:100%;font-size:15px;table-layout:fixed;}
+  table.det th,table.det td{border:1px solid #000;padding:5px 6px;text-align:center;
+    white-space:nowrap;height:32px;overflow:hidden;text-overflow:ellipsis;}
+  table.det th{font-weight:700;background:#fff;}
+  table.det td,table.det th{color:#000;}
+  table.det col.c-hinshitsu{width:10%;} table.det col.c-iro{width:11%;}
+  table.det col.c-hitsuyo{width:9%;} table.det col.c-basho{width:9%;}
+  table.det col.c-some{width:15%;} table.det col.c-label{width:7%;}
+  table.det col.c-zaiko{width:11%;} table.det col.c-tekisho{width:18%;}
+
+  /* スマホ用：構成ごとのカード */
+  .det-cards{display:none;}
+  .dc{border:1px solid var(--line);border-radius:10px;margin-bottom:10px;overflow:hidden;}
+  .dc-head{display:flex;justify-content:space-between;align-items:center;gap:10px;
+    padding:10px 12px;background:var(--hdr);}
+  .dc-qc{font-weight:800;font-size:16px;}
+  .dc-qc .q{color:var(--ink);} .dc-qc .c{color:var(--accent);margin-left:6px;}
+  .dc-need{font-size:13px;color:var(--sub);text-align:right;}
+  .dc-need b{font-size:19px;color:var(--accent);}
+  .dc-stocks{padding:6px 12px 10px;}
+  .st{display:flex;flex-wrap:wrap;gap:3px 12px;padding:8px 0;border-bottom:1px dashed var(--line);
+    font-size:14px;align-items:baseline;}
+  .st:last-child{border-bottom:none;}
+  .st .place{font-weight:800;color:var(--accent);min-width:46px;}
+  .st .dye{font-weight:700;}
+  .st .kv{color:var(--sub);font-size:12px;}
+  .st .kv b{color:var(--ink);font-size:14px;font-weight:700;}
+  .st.z{opacity:.5;}
+  .nostock-msg{color:var(--warn);font-size:13px;padding:8px 0;}
+
+  @media (max-width:640px){
+    table.det{display:none;}
+    .det-cards{display:block;}
+    .t-title{font-size:24px;letter-spacing:3px;}
+    .t-daihyo{position:static;margin:8px 0 0 auto;}
+    table.t-head2 td{font-size:14px;}
+  }
+
+  /* 印刷：PDFと同じ表だけを出す（スマホカード・検索UIは隠す） */
+  @media print{
+    body{background:#fff;}
+    header,.back-bar,.det-cards{display:none !important;}
+    main{padding:0;max-width:none;}
+    .ticket{border:none;}
+    table.det{display:table !important;}
+    .t-daihyo{position:absolute;}
+  }
+</style>
+<script>
+/* 画面の自動リロード（5分ごと）。http/httpsのときだけ。GitHub Pagesのキャッシュ対策に時刻クエリ付与。 */
+(function(){
+  var MINUTES = 5;
+  if(location.protocol === "http:" || location.protocol === "https:"){
+    setTimeout(function(){
+      try{
+        var u = location.href.split("#")[0].split("?")[0];
+        location.replace(u + "?t=" + Date.now());
+      }catch(e){ location.reload(); }
+    }, MINUTES*60*1000);
+  }
+})();
+</script>
+<!--__QRLIB__-->
+<script>
+/* QRコードをSVG文字列で返す（qrcode-generator利用）。色トップ在庫と同じ作り。 */
+function makeQrSvg(text, px){
+  px = px || 96;
+  try{
+    var qr = qrcode(0, 'M'); qr.addData(text); qr.make();
+    var n = qr.getModuleCount(), quiet=4, total=n+quiet*2, cell=px/total, rects="";
+    for(var r=0;r<n;r++){ for(var c=0;c<n;c++){ if(qr.isDark(r,c)){
+      var x=((c+quiet)*cell).toFixed(2),y=((r+quiet)*cell).toFixed(2),s=cell.toFixed(2);
+      rects+='<rect x="'+x+'" y="'+y+'" width="'+s+'" height="'+s+'"/>'; }}}
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+px+' '+px+'" shape-rendering="crispEdges">'
+      +'<rect width="100%" height="100%" fill="#fff"/><g fill="#000">'+rects+'</g></svg>';
+  }catch(e){ return '<div style="font-size:10px;color:#b00020;">QR生成失敗</div>'; }
+}
+</script>
+</head>
+<body>
+<header>
+  <div class="title-row">
+    <h1>混毛払出指図</h1>
+    <span class="meta" id="dataMeta"></span>
+  </div>
+</header>
+
+<main>
+  <!-- 検索ビュー -->
+  <section id="view-search">
+    <div class="controls">
+      <div class="search-box">
+        <input type="search" id="q" placeholder="糸順号・品質・色番で検索（例 B316 / B316-07 / 50H）" autocomplete="off">
+        <button id="clearBtn" type="button">クリア</button>
+      </div>
+      <div class="hint">糸順号（親順号＋混毛追番）、糸品質、糸色番で絞り込めます。タップで払出指図を表示。</div>
+    </div>
+    <div class="count" id="listCount"></div>
+    <div class="jlist" id="jlist"></div>
+  </section>
+
+  <!-- 払出票ビュー -->
+  <section id="view-ticket">
+    <div class="back-bar">
+      <button id="backBtn" type="button">← 一覧へ戻る</button>
+      <span class="pager">
+        <button id="prevBtn" type="button">◀ 前</button>
+        <span id="pagerText"></span>
+        <button id="nextBtn" type="button">次 ▶</button>
+      </span>
+    </div>
+    <div class="ticket" id="ticket"></div>
+  </section>
+</main>
+
+<script>
+/* ===== データ差し込み口（build.py が置換） ===== */
+var TICKET_META = /*__META__*/{"generatedAt":"(未生成)","count":0}/*__META_END__*/;
+var TICKET_DATA = /*__DATA__*/[]/*__DATA_END__*/;
+/* ============================================= */
+
+(function(){
+  "use strict";
+  var D = TICKET_DATA, M = TICKET_META;
+  var $ = function(id){ return document.getElementById(id); };
+  function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function fmtNum(n){ return (Number(n)||0).toLocaleString("ja-JP",{minimumFractionDigits:0,maximumFractionDigits:2}); }
+
+  var state = { q:"", filtered:[], curIndex:-1 };
+
+  var autoNote = (location.protocol==="http:"||location.protocol==="https:") ? " ／ 自動更新中（約10分ごと）" : "";
+  $("dataMeta").textContent = "最終更新 " + (M.generatedAt||"") + " ／ 糸順号 " + (M.count||D.length) + "件" + autoNote;
+
+  // 検索（糸順号・品質・色番のAND検索）
+  function filterTickets(){
+    var terms = state.q.trim().toLowerCase().split(/[\s\u3000]+/).filter(Boolean);
+    return D.filter(function(t){
+      if(!terms.length) return true;
+      var hay = (t.itoJungo+" "+t.oyaJungo+" "+t.itoQuality+" "+t.itoColor).toLowerCase();
+      for(var i=0;i<terms.length;i++){ if(hay.indexOf(terms[i])<0) return false; }
+      return true;
+    });
+  }
+
+  function renderList(){
+    state.filtered = filterTickets();
+    var rows = state.filtered;
+    $("listCount").textContent = rows.length + " 件";
+    // 検索語が無いときは件数が多すぎるので先頭300件に制限（スクロール負荷対策）
+    var show = state.q.trim() ? rows : rows.slice(0, 300);
+    var html = show.map(function(t, i){
+      var idx = D.indexOf(t);
+      return '<div class="jcard'+(t.hasRecipe?"":" norecipe")+'" data-idx="'+idx+'">'
+        + '<div class="jno">'+esc(t.itoJungo)+'</div>'
+        + '<div class="jqc">'+esc(t.itoQuality)+' / '+esc(t.itoColor)+'</div>'
+        + '<div class="jsub">トップ量 '+fmtNum(t.topQty)+'kg'
+        +   (t.hasRecipe ? ' ／ 構成'+t.details.length+'件' : ' ／ レシピ無')+'</div>'
+        + '</div>';
+    }).join("");
+    $("jlist").innerHTML = html || '<p class="list-empty">該当なし</p>';
+    if(!state.q.trim() && rows.length>show.length){
+      $("listCount").textContent = rows.length + " 件（先頭 "+show.length+" 件を表示。検索で絞り込めます）";
+    }
+  }
+
+  // QR用テキスト（色トップ在庫と同構成: 染順号 ラベル   置場(3桁右空白) 数量×10）
+  function qrTextOf(s){
+    var dye=(s.dyeNo!=null)?String(s.dyeNo).trim():"";
+    var label=(s.label!=null&&String(s.label).trim()!=="")?String(s.label).trim():"";
+    var place=(s.place!=null)?String(s.place).trim():"";
+    while(place.length<3){ place+=" "; }
+    var q=Number(s.qty); if(!isFinite(q)) q=0;
+    return dye+" "+label+"   "+place+" "+Math.round(q*10);
+  }
+
+  // 払出票1枚を描画
+  function renderTicket(idx){
+    var t = D[idx]; if(!t) return;
+    state.curIndex = idx;
+
+    // ヘッダー（PDF原本の払出票レイアウトを踏襲）
+    var head =
+      '<div class="t-sheet">'
+      + '<div class="t-top">'
+      +   '<table class="t-daihyo"><tr><td class="lab">台　号</td><td class="lab">氏　名</td></tr>'
+      +     '<tr><td class="blank"></td><td class="blank"></td></tr></table>'
+      +   '<div class="t-title">混毛払出票</div>'
+      +   '<div class="t-date">'+esc(M.generatedAt||"")+' 時点</div>'
+      + '</div>'
+      + '<table class="t-head2">'
+      +   '<tr><td class="k">糸順号</td><td class="v" colspan="5">'+esc(t.itoJungo)+'</td></tr>'
+      +   '<tr>'
+      +     '<td class="k">糸品質</td><td class="v">'+esc(t.itoQuality)+'</td>'
+      +     '<td class="k">糸色番</td><td class="v">'+esc(t.itoColor)+'</td>'
+      +     '<td class="k">トップ量</td><td class="v">'+fmtNum(t.topQty)+' kg</td>'
+      +   '</tr>'
+      + '</table>';
+
+    // 明細
+    var body;
+    if(!t.hasRecipe || !t.details.length){
+      body = '<div style="padding:18px;color:#b26a00;">この糸順号に対応する混毛レシピが見つかりませんでした。'
+           + '（品質 '+esc(t.itoQuality)+' / 色番 '+esc(t.itoColor)+' / 番手 '+esc(t.bante)+'）</div>'
+           + '</div>'; // t-sheet 閉じ
+    } else {
+      // --- テーブル（PC/印刷。PDF原本どおり8列格子）---
+      // 品質・色番・必要量は各構成の先頭行だけ記入し、2行目以降は空セル（PDFと同じ）。
+      // 在庫量0もそのまま表示（色付けしない）。構成に在庫候補が無い場合は1行だけ出す。
+      var trs = "";
+      t.details.forEach(function(d){
+        var stocks = d.stocks || [];
+        var rows = stocks.length ? stocks : [null];
+        rows.forEach(function(s, si){
+          var head3 = (si===0)
+            ? '<td>'+esc(d.quality)+'</td><td>'+esc(d.color)+'</td><td>'+fmtNum(d.need)+'</td>'
+            : '<td></td><td></td><td></td>';
+          var rest = s
+            ? '<td>'+esc(s.place||"")+'</td>'
+              + '<td>'+esc(s.dyeNo||"")+'</td>'
+              + '<td>'+esc(s.label||"")+'</td>'
+              + '<td>'+fmtNum(s.qty)+'</td>'
+            : '<td></td><td></td><td></td><td></td>';
+          trs += '<tr>'+head3+rest+'<td></td></tr>';
+        });
+      });
+      // 末尾に空行を1行（PDFと同じ）
+      trs += '<tr>'+'<td></td>'.repeat(8)+'</tr>';
+      var table =
+        '<div class="detail-table-wrap"><table class="det">'
+        + '<colgroup>'
+        +   '<col class="c-hinshitsu"><col class="c-iro"><col class="c-hitsuyo">'
+        +   '<col class="c-basho"><col class="c-some"><col class="c-label">'
+        +   '<col class="c-zaiko"><col class="c-tekisho">'
+        + '</colgroup>'
+        + '<thead><tr>'
+        + '<th>品質</th><th>色番</th><th>必要量</th><th>場所</th><th>染順号</th>'
+        + '<th>ラベル</th><th>在庫量</th><th>染順号（手記入）</th>'
+        + '</tr></thead><tbody>'+trs+'</tbody></table></div>'
+        + '</div>'; // t-sheet 閉じ
+
+      // --- カード（スマホ）---
+      var cards = t.details.map(function(d){
+        var stocks = d.stocks || [];
+        var stHtml;
+        if(!stocks.length){
+          stHtml = '<div class="nostock-msg">在庫データなし</div>';
+        } else {
+          stHtml = stocks.map(function(s){
+            var z = Number(s.qty)>0 ? "" : " z";
+            return '<div class="st'+z+'">'
+              + '<span class="place">'+esc(s.place||"-")+'</span>'
+              + '<span class="dye">'+esc(s.dyeNo||"-")+'</span>'
+              + '<span class="kv">ラベル <b>'+esc(s.label||"-")+'</b></span>'
+              + '<span class="kv">在庫 <b>'+fmtNum(s.qty)+'</b></span>'
+              + '</div>';
+          }).join("");
+        }
+        return '<div class="dc">'
+          + '<div class="dc-head">'
+          +   '<div class="dc-qc"><span class="q">'+esc(d.quality)+'</span><span class="c">'+esc(d.color)+'</span></div>'
+          +   '<div class="dc-need">必要量<br><b>'+fmtNum(d.need)+'</b> kg</div>'
+          + '</div>'
+          + '<div class="dc-stocks">'+stHtml+'</div>'
+          + '</div>';
+      }).join("");
+      // table 文字列の末尾で t-sheet を閉じているので、カードはその後ろに付ける
+      body = table + '<div class="det-cards">'+cards+'</div>';
+    }
+
+    $("ticket").innerHTML = head + body;
+
+    // ページャ（検索結果内での前後移動）
+    var fi = state.filtered.indexOf(t);
+    $("pagerText").textContent = (fi>=0) ? (fi+1)+" / "+state.filtered.length : "";
+    switchView("ticket");
+    window.scrollTo(0,0);
+  }
+
+  function switchView(v){
+    $("view-search").style.display = v==="search" ? "block" : "none";
+    $("view-ticket").style.display = v==="ticket" ? "block" : "none";
+  }
+
+  // イベント
+  $("q").addEventListener("input", function(e){ state.q=e.target.value; renderList(); });
+  $("clearBtn").addEventListener("click", function(){ state.q=""; $("q").value=""; renderList(); });
+  $("jlist").addEventListener("click", function(e){
+    var card=e.target.closest(".jcard");
+    if(card&&card.dataset.idx) renderTicket(Number(card.dataset.idx));
+  });
+  $("backBtn").addEventListener("click", function(){ switchView("search"); });
+  $("prevBtn").addEventListener("click", function(){
+    var fi=state.filtered.indexOf(D[state.curIndex]);
+    if(fi>0) renderTicket(D.indexOf(state.filtered[fi-1]));
+  });
+  $("nextBtn").addEventListener("click", function(){
+    var fi=state.filtered.indexOf(D[state.curIndex]);
+    if(fi>=0 && fi<state.filtered.length-1) renderTicket(D.indexOf(state.filtered[fi+1]));
+  });
+
+  renderList();
+})();
+</script>
+</body>
+</html>
